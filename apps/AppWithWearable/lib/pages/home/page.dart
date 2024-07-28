@@ -36,6 +36,7 @@ import 'package:friend_private/widgets/upgrade_alert.dart';
 import 'package:gradient_borders/gradient_borders.dart';
 import 'package:instabug_flutter/instabug_flutter.dart';
 import 'package:upgrader/upgrader.dart';
+import 'package:friend_private/pages/friends/friend_list_page.dart';
 
 class HomePageWrapper extends StatefulWidget {
   final dynamic btDevice;
@@ -126,6 +127,7 @@ class _HomePageWrapperState extends State<HomePageWrapper> with WidgetsBindingOb
   ///Screens with respect to subpage
   final Map<String, Widget> screensWithRespectToPath = {
     '/settings': const SettingsPage(),
+    '/friends': const FriendListPage(),
   };
 
   @override
@@ -361,6 +363,15 @@ class _HomePageWrapperState extends State<HomePageWrapper> with WidgetsBindingOb
           ),
         ),
         appBar: AppBar(
+          IconButton(
+            icon: Icon(Icons.people),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => FriendListPage()),
+              );
+            },
+          ),
           automaticallyImplyLeading: false,
           backgroundColor: Theme.of(context).colorScheme.surface,
           title: Row(

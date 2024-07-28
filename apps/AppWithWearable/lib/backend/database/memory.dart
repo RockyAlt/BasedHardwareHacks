@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
-
 import 'package:friend_private/backend/database/geolocation.dart';
 import 'package:friend_private/backend/database/transcript_segment.dart';
+import 'package:friend_private/backend/preferences.dart';
+import 'package:friend_private/backend/friend_service.dart';
 import 'package:objectbox/objectbox.dart';
 
 enum MemoryType { audio, image }
@@ -21,6 +22,13 @@ class Memory {
 
   @Property(type: PropertyType.date)
   DateTime? finishedAt;
+
+  @Property(type: PropertyType.date)
+  DateTime? sharedAt;
+
+  String? sharedByUid;
+
+  final sharedWithFriends = ToMany<Friend>();
 
   String transcript;
   final transcriptSegments = ToMany<TranscriptSegment>();
@@ -99,6 +107,19 @@ class Memory {
       }
     }
 
+    memory.sharedAt = json['sharedAt'] != null ? DateTime.parse(json['sharedAt']) : null;
+    memory.sharedByUid = json['sharedByUid'];
+    
+    if (json['sharedWithFriends'] != null) {
+      FriendService friendService = FriendService();
+      for (String friendUid in json['sharedWithFriends']) {
+        Friend? friend = friendService.getFriendByUid(friendUid);
+        if (friend != null) {
+          memory.sharedWithFriends.add(friend);
+        }
+      }
+    }
+
     return memory;
   }
 
@@ -115,7 +136,7 @@ class Memory {
     }
   }
 
-  toJson() {
+  Map<String, dynamic> toJson() {
     return {
       'id': id,
       'createdAt': createdAt.toIso8601String(),
@@ -128,125 +149,20 @@ class Memory {
       'discarded': discarded,
       'transcriptSegments': transcriptSegments.map((segment) => segment.toJson()).toList(),
       'photos': photos.map((photo) => photo.toJson()).toList(),
-    };
-  }
-}
-
-@Entity()
-class Structured {
-  @Id()
-  int id = 0;
-
-  String title;
-  String overview;
-  String emoji;
-  String category;
-
-  @Backlink('structured')
-  final actionItems = ToMany<ActionItem>();
-
-  @Backlink('structured')
-  final events = ToMany<Event>();
-
-  Structured(this.title, this.overview, {this.id = 0, this.emoji = '', this.category = 'other'});
-
-  getEmoji() {
-    try {
-      if (emoji.isNotEmpty) return utf8.decode(emoji.toString().codeUnits);
-      return ['🧠', '😎', '🧑‍💻', '🚀'][Random().nextInt(4)];
-    } catch (e) {
-      return ['🧠', '😎', '🧑‍💻', '🎂'][Random().nextInt(4)];
-    }
-  }
-
-  static Structured fromJson(Map<String, dynamic> json) {
-    var structured = Structured(
-      json['title'],
-      json['overview'],
-      emoji: json['emoji'],
-      category: json['category'],
-    );
-    var aItems = json['actionItems'] ?? json['action_items'];
-    if (aItems != null) {
-      for (String item in aItems) {
-        if (item.isEmpty) continue;
-        structured.actionItems.add(ActionItem(item));
-      }
-    }
-
-    if (json['events'] != null) {
-      for (dynamic event in json['events']) {
-        if (event.isEmpty) continue;
-        structured.events.add(Event(
-          event['title'],
-          DateTime.parse(event['startsAt']),
-          event['duration'],
-          description: event['description'] ?? '',
-          created: false,
-        ));
-      }
-    }
-    return structured;
-  }
-
-  @override
-  String toString() {
-    var str = '';
-    str += '${getEmoji()} $title ($category)\n\nSummary: $overview\n\n';
-    if (actionItems.isNotEmpty) {
-      str += 'Action Items:\n';
-      for (var item in actionItems) {
-        str += '- ${item.description}\n';
-      }
-    }
-    return str.trim();
-  }
-
-  toJson() {
-    return {
-      'title': title,
-      'overview': overview,
-      'emoji': emoji,
-      'category': category,
-      'actionItems': actionItems.map((item) => item.description).toList(),
-      'events': events.map((event) => event.toJson()).toList(),
-    };
-  }
-}
-
-@Entity()
-class ActionItem {
-  @Id()
-  int id = 0;
-
-  String description;
-  bool completed = false;
-  final structured = ToOne<Structured>();
-
-  ActionItem(this.description, {this.id = 0, this.completed = false});
-}
-
-@Entity()
-class PluginResponse {
-  @Id()
-  int id = 0;
-
-  String? pluginId;
-  String content;
-
-  final memory = ToOne<Memory>();
-
-  PluginResponse(this.content, {this.id = 0, this.pluginId});
-
-  toJson() {
-    return {
-      'pluginId': pluginId,
-      'content': content,
+      'sharedAt': sharedAt?.toIso8601String(),
+      'sharedByUid': sharedByUid,
+      'sharedWithFriends': sharedWithFriends.map((friend) => friend.uid).toList(),
     };
   }
 
-  factory PluginResponse.fromJson(Map<String, dynamic> json) {
-    return PluginResponse(json['content'], pluginId: json['pluginId']);
+  bool isShared() {
+    return sharedAt != null && sharedByUid != null;
+  }
+
+  void shareWithFriend(Friend friend) {
+    sharedWithFriends.add(friend);
+    sharedAt = DateTime.now();
+    sharedByUid = SharedPreferencesUtil().uid;
   }
 }
 
@@ -261,41 +177,55 @@ class Event {
 
   String description;
   bool created = false;
+  bool isConfirmed = false;
 
   final structured = ToOne<Structured>();
+  final invitedFriends = ToMany<Friend>();
 
   Event(this.title, this.startsAt, this.duration, {this.description = '', this.created = false, this.id = 0});
 
-  toJson() {
+  void inviteFriend(Friend friend) {
+    invitedFriends.add(friend);
+  }
+
+  void confirmEvent() {
+    isConfirmed = true;
+  }
+
+  Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'title': title,
       'startsAt': startsAt.toIso8601String(),
       'duration': duration,
       'description': description,
       'created': created,
+      'isConfirmed': isConfirmed,
+      'invitedFriends': invitedFriends.map((friend) => friend.uid).toList(),
     };
   }
-}
 
-@Entity()
-class MemoryPhoto {
-  @Id()
-  int id = 0;
-
-  String base64;
-  String description;
-  final memory = ToOne<Memory>();
-
-  MemoryPhoto(this.base64, this.description, {this.id = 0});
-
-  factory MemoryPhoto.fromJson(Map<String, dynamic> json) {
-    return MemoryPhoto(json['base64'], json['description']);
-  }
-
-  toJson() {
-    return {
-      'base64': base64,
-      'description': description,
-    };
+  static Event fromJson(Map<String, dynamic> json) {
+    var event = Event(
+      json['title'],
+      DateTime.parse(json['startsAt']),
+      json['duration'],
+      description: json['description'] ?? '',
+      created: json['created'] ?? false,
+      id: json['id'],
+    );
+    event.isConfirmed = json['isConfirmed'] ?? false;
+    
+    if (json['invitedFriends'] != null) {
+      FriendService friendService = FriendService();
+      for (String friendUid in json['invitedFriends']) {
+        Friend? friend = friendService.getFriendByUid(friendUid);
+        if (friend != null) {
+          event.invitedFriends.add(friend);
+        }
+      }
+    }
+    
+    return event;
   }
 }
