@@ -23,27 +23,26 @@ class Message {
   String? pluginId;
   bool fromIntegration;
 
-  set senderEnum(MessageSender sender) => this.sender = sender.toString().split('.').last;
-
-  MessageSender get senderEnum => MessageSender.values.firstWhere((e) => e.toString().split('.').last == sender);
-
   String type;
-
-  set typeEnum(MessageType type) => this.type = type.toString().split('.').last;
-
-  MessageType get typeEnum => MessageType.values.firstWhere((e) => e.toString().split('.').last == type);
 
   final memories = ToMany<Memory>();
 
   Message(
     this.createdAt,
     this.text,
-    this.sender, {
+    MessageSender senderEnum, {
     this.id = 0,
-    this.type = 'text',
+    MessageType typeEnum = MessageType.text,
     this.pluginId,
     this.fromIntegration = false,
-  });
+  })  : sender = senderEnum.toString().split('.').last,
+        type = typeEnum.toString().split('.').last;
+
+  MessageSender get senderEnum => MessageSender.values.firstWhere((e) => e.toString().split('.').last == sender);
+  set senderEnum(MessageSender value) => sender = value.toString().split('.').last;
+
+  MessageType get typeEnum => MessageType.values.firstWhere((e) => e.toString().split('.').last == type);
+  set typeEnum(MessageType value) => type = value.toString().split('.').last;
 
   static String getMessagesAsString(
     List<Message> messages, {
@@ -63,5 +62,29 @@ class Message {
               : e.sender.toString().toUpperCase();
       return '(${e.createdAt.toIso8601String().split('.')[0]}) $sender: ${e.text}';
     }).join('\n');
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'createdAt': createdAt.toIso8601String(),
+      'text': text,
+      'sender': sender,
+      'type': type,
+      'pluginId': pluginId,
+      'fromIntegration': fromIntegration,
+    };
+  }
+
+  static Message fromJson(Map<String, dynamic> json) {
+    return Message(
+      DateTime.parse(json['createdAt']),
+      json['text'],
+      MessageSender.values.firstWhere((e) => e.toString().split('.').last == json['sender']),
+      id: json['id'],
+      typeEnum: MessageType.values.firstWhere((e) => e.toString().split('.').last == json['type']),
+      pluginId: json['pluginId'],
+      fromIntegration: json['fromIntegration'] ?? false,
+    );
   }
 }
